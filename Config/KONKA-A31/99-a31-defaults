@@ -1,0 +1,23 @@
+#!/bin/sh
+# Public, non-secret defaults only. Do not copy an old network config over DSA.
+uci -q batch <<'EOF'
+set system.@system[0].hostname='imm'
+set system.@system[0].timezone='CST-8'
+set system.@system[0].zonename='Asia/Shanghai'
+set network.lan.ipaddr='192.168.0.1'
+set network.wan6.sourcefilter='0'
+set dhcp.@dnsmasq[0].noresolv='1'
+delete dhcp.@dnsmasq[0].server
+add_list dhcp.@dnsmasq[0].server='127.0.0.1#5335'
+set dhcp.@dnsmasq[0].ednspacket_max='1232'
+commit system
+commit network
+commit dhcp
+EOF
+# A factory image contains no shared wireless password. Enable radios only after
+# restoring the private SSID/key via an interface-aware migration or configuring it.
+for radio in $(uci show wireless 2>/dev/null | sed -n 's/^wireless\.\([^.=]*\)=wifi-device$/\1/p'); do
+  uci set "wireless.$radio.disabled=1"
+done
+uci commit wireless
+exit 0
