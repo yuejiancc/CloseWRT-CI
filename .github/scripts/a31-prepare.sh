@@ -9,7 +9,8 @@ REPORT="$GITHUB_WORKSPACE/build-reports"
 ./scripts/feeds install -a
 
 # Same feed compatibility fix as the original CI's Scripts/Handles.sh.
-if grep -q '^define Package/weechat-minimal$' feeds/packages/net/weechat/Makefile; then
+if [ -f feeds/luci/applications/luci-app-weechat/Makefile ] && \
+   grep -q '^define Package/weechat-minimal$' feeds/packages/net/weechat/Makefile; then
   sed -i 's/ +weechat / +!PACKAGE_weechat-full:weechat-minimal +PACKAGE_weechat-full:weechat-full /g' \
     feeds/luci/applications/luci-app-weechat/Makefile
 fi
