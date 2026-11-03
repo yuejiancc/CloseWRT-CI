@@ -1,0 +1,16 @@
+[
+  {
+    "source": "yuzhii-6.6",
+    "repo": "Yuzhii0718/immortalwrt-mt798x-6.6-padavanonly",
+    "branch": "openwrt-24.10-6.6",
+    "revision": "4af4359f0fc95bcef17245a6273010cd4f82cafb",
+    "go_bootstrap": "1.22.x"
+  },
+  {
+    "source": "chasey-25.12",
+    "repo": "chasey-dev/immortalwrt-mt798x-rebase",
+    "branch": "25.12",
+    "revision": "9f397975c7b47ce6986a6e39529d2f72fd5c729d",
+    "go_bootstrap": "1.26.x"
+  }
+]

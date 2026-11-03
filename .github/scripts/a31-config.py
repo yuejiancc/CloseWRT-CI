@@ -92,6 +92,9 @@ FORBIDDEN = ['firewall', 'iptables-zz-legacy', 'ip6tables-zz-legacy']
 
 def audit():
     actual = parse(Path('.config').read_text())
+    bootstrap = subprocess.check_output(['go', 'env', 'GOVERSION'], text=True).strip()
+    go_version = tuple(map(int, re.match(r'go(\d+)\.(\d+)', bootstrap).groups()))
+    assert go_version >= ((1, 24) if SOURCE == 'chasey-25.12' else (1, 20)), bootstrap
     old = parse((PROFILE / 'running-build.config').read_text())
     missing = [p for p in CRITICAL if actual.get('CONFIG_PACKAGE_' + p) != 'y']
     unexpected = [p for p in FORBIDDEN if actual.get('CONFIG_PACKAGE_' + p, 'n') != 'n']
@@ -130,6 +133,7 @@ def audit():
         'critical_missing': missing, 'forbidden_selected': unexpected,
         'wireless': wifi, 'legacy_symbol_differences': differences,
         'package_manager': 'apk' if actual.get('CONFIG_USE_APK') == 'y' else 'opkg',
+        'go_bootstrap': bootstrap,
         'policy': 'native firmware first; manual migration later',
         'direct_sysupgrade_from_running_system_supported': False,
         'migration_required': ['NMBM/fixed NAND mapping', 'UBI kernel/rootfs -> FIT',

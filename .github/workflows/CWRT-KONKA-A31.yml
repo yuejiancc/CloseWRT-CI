@@ -3,6 +3,14 @@ name: KONKA A31
 on:
   workflow_dispatch:
     inputs:
+      source:
+        description: Source to build
+        type: choice
+        options:
+          - both
+          - chasey-25.12
+          - yuzhii-6.6
+        default: both
       config_only:
         description: Only resolve and audit configuration
         type: boolean
@@ -17,26 +25,39 @@ permissions:
   contents: read
 
 concurrency:
-  group: a31-${{ github.ref }}
+  group: a31-${{ github.ref }}-${{ inputs.source || 'both' }}
   cancel-in-progress: false
 
 jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - id: matrix
+        env:
+          SELECTED_SOURCE: ${{ inputs.source || 'both' }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          entries = json.loads(Path('Config/KONKA-A31/sources.json').read_text())
+          selected = os.environ['SELECTED_SOURCE']
+          entries = [entry for entry in entries if selected == 'both' or entry['source'] == selected]
+          assert entries
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('matrix=' + json.dumps(entries) + '\n')
+          PY
   build:
+    needs: plan
     name: A31 / ${{ matrix.source }}
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - source: yuzhii-6.6
-            repo: Yuzhii0718/immortalwrt-mt798x-6.6-padavanonly
-            branch: openwrt-24.10-6.6
-            revision: 4af4359f0fc95bcef17245a6273010cd4f82cafb
-          - source: chasey-25.12
-            repo: chasey-dev/immortalwrt-mt798x-rebase
-            branch: '25.12'
-            revision: 9f397975c7b47ce6986a6e39529d2f72fd5c729d
+        include: ${{ fromJSON(needs.plan.outputs.matrix) }}
     env:
       SOURCE_ID: ${{ matrix.source }}
       SOURCE_REPO: ${{ matrix.repo }}
@@ -53,7 +74,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             bc bison build-essential bzip2 ca-certificates ccache clang cmake cpio curl \
             device-tree-compiler file flex g++-multilib gawk gcc-multilib gettext git \
-            genisoimage golang-go jq libbpf-dev libclang-dev libdw-dev libelf-dev \
+            genisoimage jq libbpf-dev libclang-dev libdw-dev libelf-dev \
             libncurses-dev libssl-dev lld llvm ninja-build patch perl pkgconf \
             python3 python3-cryptography python3-dev python3-packaging python3-pyelftools \
             python3-setuptools qemu-utils rsync swig unzip wget xz-utils zlib1g-dev zstd
@@ -61,6 +82,11 @@ jobs:
           sudo chown "$USER:$USER" /mnt/a31
           ln -s /mnt/a31 wrt
           mkdir -p build-reports
+      - name: Install matching Go bootstrap
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: ${{ matrix.go_bootstrap }}
+          cache: false
       - name: Fetch original CI source at recorded revision
         working-directory: wrt
         run: |
