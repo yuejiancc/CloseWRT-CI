@@ -146,9 +146,12 @@ def collect():
     out = PROJECT / 'a31-artifacts'
     out.mkdir(exist_ok=True)
     target = Path('bin/targets/mediatek/filogic')
-    images = list(target.glob('*konka-komi-a31*-sysupgrade.itb'))
+    device_files = [p for p in target.iterdir() if 'konka-komi-a31' in p.name.replace('_', '-')]
+    images = [p for p in device_files if p.name.endswith('-sysupgrade.itb')]
     assert len(images) == 1, f'Expected one A31 FIT, found {images}'
-    manifests = list(target.glob('*konka-komi-a31*.manifest'))
+    manifests = [p for p in device_files if p.suffix == '.manifest']
+    if not manifests:
+        manifests = list(target.glob('*.manifest'))
     assert manifests, 'Missing per-device manifest'
     installed = {line.split(' - ')[0] for line in manifests[0].read_text().splitlines()}
     missing = set(CRITICAL) - installed
@@ -166,7 +169,7 @@ def collect():
     subprocess.run(['staging_dir/host/bin/fwtool', '-i', str(metadata), str(images[0])], check=True)
     supported = json.loads(metadata.read_text())['supported_devices']
     assert 'konka,komi-a31' in supported, supported
-    for path in [*images, *target.glob('*konka-komi-a31*-recovery.itb'),
+    for path in [*images, *[p for p in device_files if p.name.endswith('-recovery.itb')],
                  *manifests, *target.glob('*.buildinfo'), *target.glob('profiles.json')]:
         shutil.copy2(path, out / path.name)
     shutil.copytree(REPORT, out / 'reports', dirs_exist_ok=True)
