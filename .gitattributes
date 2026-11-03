@@ -1,2 +1,8 @@
 *.txt text eol=lf
 *.sh text eol=lf
+*.py text eol=lf
+*.yml text eol=lf
+*.config text eol=lf
+*.init text eol=lf
+*.uci text eol=lf
+Config/KONKA-A31/** text eol=lf

@@ -59,10 +59,10 @@ Config——自定义配置
 
 工作流 **KONKA A31** 沿用本项目原有的 Yuzhii 24.10 / Linux 6.6 与
 chasey 25.12 两套源码，仅构建 MT7981B / 256 MiB RAM / 128 MiB NAND 的 A31。
+采用源码原生 FIT/DSA、fw4 和软件包管理器，现有服务随后手动迁移。
 配置与版本依据位于 [`Config/KONKA-A31`](Config/KONKA-A31)，每次构建保存配置审计、
 源码及 feeds 版本、软件包清单、镜像校验和；可手动选择 `config_only` 只检查配置。
 现机为 21.02 的 NMBM、独立 kernel/rootfs 卷布局，而新源码为原生 FIT/DSA 布局，
 **产物不能直接视为现系统可保留配置升级的固件**。
 安装前请阅读 [兼容与迁移说明](Config/KONKA-A31/COMPATIBILITY.md)。
 此工作流不刷写路由器、不清理旧发布，也不将私有运维配置写入公开固件。
-

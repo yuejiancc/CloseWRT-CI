@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Resolve legacy intent against the original CI source and audit the result."""
+"""Build native A31 firmware and record migration differences for later review."""
 import hashlib
 import json
 import os
@@ -53,9 +53,8 @@ def seed():
               if k.startswith(('CONFIG_MTK_', 'CONFIG_CONNINFRA_', 'CONFIG_WARP_',
                                'CONFIG_WED_', 'CONFIG_first_card'))}
     old = parse((PROFILE / 'running-build.config').read_text())
-    # Do not force an obsolete target/toolchain or kernel library ABI.
-    values.update({k: v for k, v in old.items()
-                   if not k.startswith(('CONFIG_TARGET_', 'CONFIG_TOOLCHAIN'))})
+    # Retain supported radio tuning, not legacy kernel/package/ABI selections.
+    values.update({k: v for k, v in old.items() if k.startswith('CONFIG_MTK_')})
     values.update(parse((PROFILE / 'profile.config').read_text()))
     values.update(source_overrides())
     write_config(values)
@@ -66,45 +65,29 @@ def packages():
     metadata = Path('tmp/.config-package.in').read_text()
     symbols = set(re.findall(r'^\s*(?:menu)?config (PACKAGE_[\w+.-]+)', metadata, re.M))
     values = parse(Path('.config').read_text())
-    # Library ABI suffixes are installed names, not always Kconfig package names.
-    aliases = {'iptables': 'iptables-zz-legacy', 'ip6tables': 'ip6tables-zz-legacy',
-               'miniupnpd': 'miniupnpd-iptables'}
-    if SOURCE == 'chasey-25.12':
-        aliases.update({'mtwifi-cfg': 'mtwifi-cfg-ucode', 'iwinfo': 'iwinfo-ucode'})
     requested, unavailable = {}, []
-    excluded = {'kernel', 'libc', 'libgcc', 'swconfig', 'switch', 'libiwinfo-lua',
-                'luci-app-chinadns-ng'}
-    for line in (PROFILE / 'running-packages.txt').read_text().splitlines():
-        name = line.split(' - ')[0].strip()
-        if not name or name in excluded:
-            continue
-        mapped = aliases.get(name, name)
-        if 'PACKAGE_' + mapped not in symbols:
-            lib = re.sub(r'\d+(?:-\d+)*$', '', mapped)
-            if mapped.startswith('lib') and 'PACKAGE_' + lib in symbols:
-                mapped = lib
-            else:
-                unavailable.append(name)
-                continue
-        values['CONFIG_PACKAGE_' + mapped] = 'y'
-        requested[name] = mapped
-    # Existing ChinaDNS UI uses a different schema; custom service UCI stays canonical.
+    optional = ['ddns-go', 'luci-app-ddns-go', 'socat', 'luci-app-socat', 'htop',
+                'nano', 'tcpdump', 'openssh-sftp-server', 'luci-app-uhttpd',
+                'luci-app-package-manager', 'luci-app-opkg']
+    for name in optional:
+        if 'PACKAGE_' + name in symbols:
+            values['CONFIG_PACKAGE_' + name] = 'y'
+            requested[name] = name
+        else:
+            unavailable.append(name)
     values.update(parse((PROFILE / 'profile.config').read_text()))
     values.update(source_overrides())
     write_config(values)
     (REPORT / 'package-resolution.json').write_text(json.dumps({
         'requested': requested, 'unavailable': unavailable,
-        'excluded_legacy_components': sorted(excluded),
-        'chinadns_ui': 'service UCI retained; stock UI schema is incompatible',
+        'policy': 'native firmware first; old services migrate manually later',
     }, indent=2) + '\n')
 
 
-CRITICAL = ['firewall', 'iptables-zz-legacy', 'ip6tables-zz-legacy', 'kmod-ipt-nat6',
-            'kmod-ipt-tproxy', 'ipset', 'dnsmasq-full', 'chinadns-ng', 'ca-bundle',
-            'UAmask', 'ddns-go', 'socat', 'sqm-scripts', 'luci', 'luci-app-mtwifi-cfg',
-            'luci-app-turboacc-mtk', 'luci-app-eqos-mtk', 'kmod-mt_wifi', 'opkg']
-FORBIDDEN = ['firewall4', 'iptables-nft', 'ip6tables-nft', 'nftables-json',
-             'nftables-nojson', 'miniupnpd-nftables', 'apk', 'adguardhome']
+CRITICAL = ['firewall4', 'dnsmasq-full', 'ca-bundle', 'luci', 'luci-app-firewall',
+            'luci-app-mtwifi-cfg', 'luci-app-turboacc-mtk', 'luci-app-eqos-mtk',
+            'luci-app-upnp', 'kmod-mt_wifi', 'odhcp6c', 'dropbear']
+FORBIDDEN = ['firewall', 'iptables-zz-legacy', 'ip6tables-zz-legacy']
 
 
 def audit():
@@ -114,7 +97,8 @@ def audit():
     unexpected = [p for p in FORBIDDEN if actual.get('CONFIG_PACKAGE_' + p, 'n') != 'n']
     assert actual.get('CONFIG_TARGET_mediatek_filogic_DEVICE_konka_komi-a31') == 'y'
     assert actual.get('CONFIG_TARGET_MULTI_PROFILE', 'n') == 'n'
-    assert actual.get('CONFIG_USE_APK', 'n') == 'n'
+    (REPORT / 'resolved.config').write_text(Path('.config').read_text())
+    assert actual.get('CONFIG_IPV6') == 'y'
     differences = {k: {'running': v, 'build': actual.get(k, 'unsupported')}
                    for k, v in old.items() if actual.get(k) != v}
     if SOURCE == 'chasey-25.12':
@@ -145,6 +129,8 @@ def audit():
         'board': 'konka,komi-a31', 'ram_mib': 256, 'nand_mib': 128,
         'critical_missing': missing, 'forbidden_selected': unexpected,
         'wireless': wifi, 'legacy_symbol_differences': differences,
+        'package_manager': 'apk' if actual.get('CONFIG_USE_APK') == 'y' else 'opkg',
+        'policy': 'native firmware first; manual migration later',
         'direct_sysupgrade_from_running_system_supported': False,
         'migration_required': ['NMBM/fixed NAND mapping', 'UBI kernel/rootfs -> FIT',
                                'bootloader FIT support', 'DSA interface names',
@@ -171,22 +157,22 @@ def collect():
     roots = list(Path('build_dir').glob('target-*/root-mediatek'))
     assert len(roots) == 1, roots
     root = roots[0]
-    binary = root / 'usr/bin/chinadns-ng'
-    binary_hash = hashlib.sha256(binary.read_bytes()).hexdigest()
-    assert binary_hash == '3fe0217615dd7060b7287d2b6b31d2a0b364137398bfb335a03bead322eac716'
-    domain_hash = hashlib.sha256((root / 'etc/chinadns-ng/chinalist.txt').read_bytes()).hexdigest()
-    assert domain_hash == '375424eb7909a83238359a59f56b15abd0fb18bdd47c13347b8da6e1befeb611'
     modules = list(root.glob('lib/modules/*/mt_wifi.ko'))
     assert len(modules) == 1, modules
     module = modules[0]
     assert module.read_bytes()[:4] == b'\x7fELF'
+    assert images[0].read_bytes()[:4] == bytes.fromhex('d00dfeed'), 'Invalid FIT magic'
+    metadata = REPORT / 'firmware-metadata.json'
+    subprocess.run(['staging_dir/host/bin/fwtool', '-i', str(metadata), str(images[0])], check=True)
+    supported = json.loads(metadata.read_text())['supported_devices']
+    assert 'konka,komi-a31' in supported, supported
     for path in [*images, *target.glob('*konka-komi-a31*-recovery.itb'),
                  *manifests, *target.glob('*.buildinfo'), *target.glob('profiles.json')]:
         shutil.copy2(path, out / path.name)
     shutil.copytree(REPORT, out / 'reports', dirs_exist_ok=True)
     result = {'build_verified': True, 'runtime_verified': False,
               'direct_sysupgrade_from_running_system_supported': False,
-              'chinadns_sha256': binary_hash, 'chinalist_sha256': domain_hash,
+              'supported_devices': supported,
               'wireless_module_sha256': hashlib.sha256(module.read_bytes()).hexdigest(),
               'wireless_module_path': str(module.relative_to(root)),
               'packages': sorted(installed), 'image_bytes': images[0].stat().st_size}
